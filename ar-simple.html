@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Virtual Ring Try-On</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <link rel="preload" href="/assets/fonts/TildaSans-Light.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/TildaSans-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/TildaSans-Bold.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/assets/fonts.css">
+  <style>
+    :root {
+      --stage-w: 500px;
+      --stage-h: 500px;
+      --right-w: 500px;
+      --bg: #fff;
+      --panel: #131621;
+      --text: #e7ecff;
+      --muted: #97a0c3;
+      --accent-2: #6a0e42;
+      --font-sans: "Tilda Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      display: grid;
+      place-items: center;
+      height: 100%;
+      font-weight: 400;
+    }
+
+    .light {
+      font-weight: 300;
+    }
+
+    .bold {
+      font-weight: 700;
+    }
+
+    .page {
+      display: grid;
+      grid-template-columns: var(--stage-w) var(--right-w);
+      gap: 32px;
+      /* padding: 16px; */
+      padding-top: 45px;
+    }
+
+    .stage {
+      position: relative;
+      width: var(--stage-w);
+      height: var(--stage-h);
+      border-radius: 14px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #cam,
+    #gl {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      object-fit: cover;
+      transform: scaleX(-1);
+      object-position: center;
+      /* keep cropping centered */
+    }
+
+    .badge {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      background: rgba(0, 0, 0, 0.45);
+      color: #fff;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+    }
+
+    #pdp-info {
+      --text: #111;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #e6007a;
+      color: var(--text);
+      max-width: 640px;
+    }
+
+    #pdp-info .pdp-title {
+      /* font-size: clamp(28px, 3.4vw, 44px); */
+      font-weight: 700;
+      line-height: 1.1em;
+      margin: 0 0 .25rem;
+      font-size: 2em;
+      font-family: "Tilda Sans";
+      letter-spacing: 0.05em;
+    }
+
+    #pdp-info .pdp-meta {
+      font-family: "Tilda Sans", sans-serif;
+      font-size: .9rem;
+      color: var(--muted);
+      margin: 1.25rem 0 1rem;
+      font-weight: 400;
+    }
+
+    #pdp-info .pdp-desc {
+      font-family: "Tilda Sans", sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      margin: 1.25rem 0 1.25rem;
+      max-width: 60ch;
+      font-weight: 300;
+    }
+
+    #pdp-info .pdp-field {
+      margin: 1rem 0;
+    }
+
+    #pdp-info .pdp-field label {
+      display: block;
+      font-weight: 700;
+      margin-bottom: .4rem;
+    }
+
+    #pdp-info .pdp-select {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+      max-width: 520px;
+    }
+
+    #pdp-info .pdp-select select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: .7rem .9rem;
+      font-size: .95rem;
+      background: #fff;
+      color: var(--text);
+    }
+
+    #pdp-info .pdp-select::after {
+      content: "▾";
+      position: absolute;
+      right: .7rem;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      font-size: 1rem;
+      color: var(--muted);
+    }
+
+    #pdp-info .pdp-actions {
+      display: flex;
+      gap: .75rem;
+      margin-top: 1.25rem;
+      flex-wrap: wrap;
+    }
+
+    #pdp-info .btn {
+      font-family: "Tilda Sans", sans-serif;
+      cursor: pointer;
+      /* border-radius: 8px; */
+      padding: .85rem 1.1rem;
+      font-weight: 400;
+      text-transform: uppercase;
+      font-size: 14px;
+    }
+
+    #pdp-info .btn-outline {
+      background: transparent;
+      border: 0.5px solid var(--accent);
+      color: var(--text);
+    }
+
+    #pdp-info .btn-outline:hover {
+      background: var(--accent-2);
+      color: #fff;
+    }
+
+    .tryon-btn {
+      font-family: "Tilda Sans", sans-serif;
+      display: inline-block;
+      border: 1px solid #111;
+      /* same as #pdp-info .btn-outline */
+      /* border-radius: 8px; */
+      background: #6a0e42;
+      color: #fff;
+      padding: 0 1.1rem;
+      font-weight: 400;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      /* width: 98.5%; */
+    }
+
+    .tryon-btn:hover {
+      background: transparent;
+      color: #111;
+      border: 1px solid #6a0e42;
+    }
+
+    /* Uses same look as your outline buttons */
+    #wishlist-btn {
+      font-family: "Tilda Sans", sans-serif;
+      display: inline-flex;
+      align-items: center;
+      gap: .55rem;
+      cursor: pointer;
+      user-select: none;
+      transition: background .2s ease, color .2s ease, border-color .2s ease;
+      font-weight: 400;
+    }
+
+    #wishlist-btn .heart {
+      font-size: 1.1rem;
+      line-height: 1;
+      color: #111;
+      /* default */
+      transition: color .2s ease, transform .12s ease;
+    }
+
+    /* Active (added) state */
+    #wishlist-btn.added {
+      border-color: #e6007a;
+      /* optional: brand accent */
+      color: #111;
+    }
+
+    #wishlist-btn.added .heart {
+      color: #e6007a;
+      /* pink/red when added */
+      transform: scale(1.05);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    <div class="stage">
+      <video id="cam" autoplay playsinline muted></video>
+      <canvas id="gl"></canvas>
+      <div class="badge">Raise your hand ~30–60cm from camera</div>
+    </div>
+    <aside id="pdp-info">
+      <h1 class="pdp-title">Diamond Ladies Ring CWF3227</h1>
+      <div class="pdp-meta">CWF3227 / D6Y7P4 / BGT</div>
+      <p class="pdp-desc">
+        An symbol of commitment, our Engagement Rings hold profound significance for both the giver and receiver,
+        symbolizing a pledge to share joyous days and embrace the next exciting chapter in life together
+      </p>
+      <div class="pdp-field">
+        <label>Metal</label>
+        <div class="pdp-select">
+          <select id="metal-select">
+            <option value="0">Platinum</option>
+            <option value="1">Yellow Gold</option>
+            <option value="2">White Gold</option>
+            <option value="3">Rose Gold</option>
+          </select>
+        </div>
+
+        <!-- <button class="btn" id="switchMat">Change Material</button> -->
+      </div>
+      <div class="pdp-actions">
+        <button class="tryon-btn">ADD TO CART!</button>
+        <button id="wishlist-btn" class="btn btn-outline" type="button" aria-pressed="false">
+          <span class="heart" aria-hidden="true">♡</span>
+          <span class="label">Add to Wishlist</span>
+        </button>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const FIXED_W = 500, FIXED_H = 500;
+    const videoEl = document.getElementById('cam');
+    const canvasGL = document.getElementById('gl');
+    canvasGL.width = FIXED_W; canvasGL.height = FIXED_H;
+    videoEl.width = FIXED_W; videoEl.height = FIXED_H;
+
+    // Three.js setup ...
+    const renderer = new THREE.WebGLRenderer({ canvas: canvasGL, antialias: true, alpha: true });
+    renderer.setSize(FIXED_W, FIXED_H, false);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputEncoding = THREE.sRGBEncoding;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(48, FIXED_W / FIXED_H, 0.01, 5);
+    camera.position.set(0, 0, 0.6);
+
+    camera.aspect = FIXED_W / FIXED_H;   // 1.0
+    camera.updateProjectionMatrix();
+
+    // Lights
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x202235, 0.9));
+    const key = new THREE.DirectionalLight(0xffffff, 1.0); key.position.set(0.6, 0.7, 1); scene.add(key);
+    const rim = new THREE.DirectionalLight(0xbfd2ff, 0.6); rim.position.set(-0.6, 0.3, -0.6); scene.add(rim);
+
+    // const loader = new THREE.CubeTextureLoader();
+    // const envMap = loader.load([
+    //   'px.jpg', 'nx.jpg',
+    //   'py.jpg', 'ny.jpg',
+    //   'pz.jpg', 'nz.jpg'
+    // ]);
+    // scene.environment = envMap;
+
+    // Ring setup ...
+    const MATERIALS = [
+      new THREE.MeshStandardMaterial({ color: 0xdcdcdc, metalness: 1.0, roughness: 0.2 }),
+      new THREE.MeshStandardMaterial({ color: 0xf7d37b, metalness: 1.0, roughness: 0.25 }),
+      new THREE.MeshStandardMaterial({ color: 0xe5e7f9, metalness: 1.0, roughness: 0.05 }),
+      new THREE.MeshStandardMaterial({ color: 0xb88a6a, metalness: 1.0, roughness: 0.35 })
+    ];
+    let materialIndex = 0;
+
+    const ringRoot = new THREE.Object3D();
+    scene.add(ringRoot);
+
+    const VISIBLE_ARC = Math.PI * 1.05;  // 1.20–1.40 is a good range
+    const TUBE_RADIUS = 0.0023;  //             major  tube (try 0.0022–0.0030)
+    const ringGeo = new THREE.TorusGeometry(0.01, TUBE_RADIUS, 16, 96, VISIBLE_ARC);
+    const ringMesh = new THREE.Mesh(ringGeo, MATERIALS[0]);
+    // ringMesh.material.envMapIntensity = 1.2;
+    ringMesh.rotation.z = Math.PI / 2;
+    ringRoot.add(ringMesh);
+    ringRoot.visible = false;
+
+    // Ray helper
+    const MIRROR = true;
+    const raycaster = new THREE.Raycaster();
+    const tmpV2 = new THREE.Vector2();
+    function ndcToWorld(xNorm, yNorm, distance) {
+      const x = MIRROR ? (1 - xNorm) : xNorm;
+      const y = yNorm;
+      tmpV2.set(x * 2 - 1, -(y * 2 - 1));
+      raycaster.setFromCamera(tmpV2, camera);
+      return raycaster.ray.origin.clone().add(raycaster.ray.direction.clone().multiplyScalar(distance));
+    }
+    function depthToDistance(zNorm) {
+      const z = THREE.MathUtils.clamp(-zNorm, -0.15, 0.18);
+      const t = (z + 0.15) / 0.33;
+      return THREE.MathUtils.lerp(0.9, 0.28, t);
+    }
+
+    // MediaPipe
+    const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+    hands.setOptions({ selfieMode: true, maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
+    hands.onResults(onResults);
+
+    // Camera shim with stream tracking
+    let __activeStream = null;
+    class SimpleCameraShim {
+      constructor(videoEl, { onFrame, width, height }) {
+        this.videoEl = videoEl; this.onFrame = onFrame;
+        this.width = width; this.height = height;
+        this._loop = this._loop.bind(this);
+      }
+      async start() {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: this.width, height: this.height, facingMode: 'user' }, audio: false
+        });
+        this.videoEl.srcObject = stream;
+        __activeStream = stream;  // keep reference
+        await this.videoEl.play();
+        this._running = true;
+        requestAnimationFrame(this._loop);
+      }
+      async _loop() {
+        if (!this._running) return;
+        await this.onFrame();
+        requestAnimationFrame(this._loop);
+      }
+    }
+
+    // Helper functions: onResults(), etc. (unchanged from your code)
+
+    const camHelper = new (window.Camera || SimpleCameraShim)(
+      videoEl,
+      { onFrame: async () => { await hands.send({ image: videoEl }); }, width: FIXED_W, height: FIXED_H }
+    );
+    camHelper.start();
+
+    // Results
+    function onResults(results) {
+      if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
+        ringRoot.visible = false;
+        return;
+      }
+
+      let placed = false;
+
+      // Process first hand that has ring finger landmarks
+      for (const lm of results.multiHandLandmarks) {
+        const A = lm[13], B = lm[14]; // ring MCP→PIP
+        if (!A || !B) continue;
+
+        // World points
+        const pA = ndcToWorld(A.x, A.y, depthToDistance(A.z));
+        const pB = ndcToWorld(B.x, B.y, depthToDistance(B.z));
+        const pC = pA.clone().multiplyScalar(0.7).add(pB.clone().multiplyScalar(0.3)); // biased center
+
+
+        // const t = 0.40; // was ~0.30; increase to move the ring toward PIP
+        // const pC = pA.clone().lerp(pB, t);
+        // z: finger axis
+        const z = pB.clone().sub(pA);
+        const len = z.length();
+        if (len < 1e-5) continue;
+        z.normalize();
+
+        // x: radial toward camera (camera->ring, projected ⟂ axis)
+        const camDir = pC.clone().sub(camera.position); // camera -> ring
+        let x = camDir.sub(z.clone().multiplyScalar(camDir.dot(z))); // remove axis component
+
+        // Fallback if nearly parallel (edge-on): use palm normal projected ⟂ axis
+        if (x.lengthSq() < 1e-6) {
+          const W = lm[0], I = lm[5], P = lm[17]; // wrist, index MCP, pinky MCP
+          if (W && I && P) {
+            const wP = ndcToWorld(W.x, W.y, depthToDistance(W.z));
+            const iP = ndcToWorld(I.x, I.y, depthToDistance(I.z));
+            const pP = ndcToWorld(P.x, P.y, depthToDistance(P.z));
+            const palmN = new THREE.Vector3().crossVectors(
+              iP.clone().sub(wP),
+              pP.clone().sub(wP)
+            ).normalize();
+            x = palmN.sub(z.clone().multiplyScalar(palmN.dot(z)));
+          } else {
+            x.set(1, 0, 0); // last resort
+          }
+        }
+        x.normalize();
+
+        // Ensure x points roughly toward camera (so curve hugs finger toward viewer)
+        if (x.dot(pC.clone().sub(camera.position)) < 0) x.multiplyScalar(-1);
+
+        // y: orthogonal completion
+        const y = new THREE.Vector3().crossVectors(z, x).normalize();
+
+        // Build rotation from basis [x y z]
+        const m = new THREE.Matrix4().makeBasis(x, y, z);
+        const quat = new THREE.Quaternion().setFromRotationMatrix(m);
+
+
+        // Move the ring a bit along the finger axis (MCP→PIP)
+        const AXIAL_FRACTION = 0.25; // 2.5% of MCP→PIP length toward PIP
+        ringRoot.position.copy(pC).add(z.clone().multiplyScalar(AXIAL_FRACTION * len));
+        ringRoot.quaternion.copy(quat); // keep same orientation
+        // // Pose
+        // ringRoot.position.copy(pC);
+        // ringRoot.quaternion.copy(quat);
+
+        // Scale vs bone length (tighten if needed)
+        const desiredMajor = len * 0.18;   // tweak 0.16–0.20
+        const baseMajor = 0.01;            // your TorusGeometry major radius
+        const scale = desiredMajor / baseMajor;
+        ringRoot.scale.setScalar(scale);
+
+        // Small outward nudge along x (radial)
+        ringRoot.position.add(x.clone().multiplyScalar(0.0025 * scale));
+
+        ringMesh.visible = true;
+        ringRoot.visible = true;
+        placed = true;
+        break; // one ring total
+      }
+
+      if (!placed) ringRoot.visible = false;
+    }
+
+    (function tick() { renderer.render(scene, camera); requestAnimationFrame(tick); })();
+
+    // === STOP CAMERA bits added ===
+    function stopCamera() {
+      __activeStream?.getTracks().forEach(t => t.stop());
+      __activeStream = null;
+      if (videoEl) videoEl.srcObject = null;
+    }
+    window.addEventListener('message', (e) => {
+      if (e.data?.type === 'STOP_CAMERA') stopCamera();
+    });
+    window.addEventListener('beforeunload', stopCamera);
+
+    // document.getElementById('switchMat').addEventListener('click', () => {
+    //   materialIndex = (materialIndex + 1) % MATERIALS.length;
+    //   console.log("Material index:", materialIndex)
+    //   ringMesh.material = MATERIALS[materialIndex];
+    // });
+
+    const metalSelect = document.getElementById("metal-select");
+
+    metalSelect.addEventListener("change", (e) => {
+      const value = parseInt(e.target.value, 10); // numeric index
+      const label = e.target.options[e.target.selectedIndex].text; // display text
+
+      console.log("Selected index:", value);
+      console.log("Selected text:", label);
+
+      // Example: switch material for AR ring
+      // ringMesh.material = MATERIALS[value];
+
+      // materialIndex = (value + 1) % MATERIALS.length;
+      // console.log("Material index:", materialIndex)
+      // console.log("Material index:", materialIndex)
+      ringMesh.material = MATERIALS[value];
+    });
+
+
+    const btn = document.getElementById('wishlist-btn');
+    const heart = btn.querySelector('.heart');
+    const label = btn.querySelector('.label');
+
+    btn.addEventListener('click', () => {
+      const added = btn.classList.toggle('added');
+      btn.setAttribute('aria-pressed', String(added));
+
+      if (added) {
+        heart.textContent = '❤';         // filled heart
+        label.textContent = 'Added to Wishlist';
+      } else {
+        heart.textContent = '♡';         // outline heart
+        label.textContent = 'Add to Wishlist';
+      }
+    });
+  </script>
+</body>
+
+</html>
